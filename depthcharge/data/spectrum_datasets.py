@@ -75,9 +75,7 @@ class CollateFnMixin:
 
     def loader(
         self,
-        precision: Literal[
-            torch.float16, torch.float32, torch.float64
-        ] = torch.float64,
+        precision: Literal[torch.float16, torch.float32, torch.float64] = torch.float64,
         **kwargs: dict,
     ) -> DataLoader:
         """Create a suitable PyTorch DataLoader."""
@@ -130,8 +128,11 @@ class SpectrumDataset(Dataset, CollateFnMixin):
         self,
         spectra: pl.DataFrame | PathLike | Iterable[PathLike],
         path: PathLike | None = None,
+        dtype: torch.dtype = torch.float32,
         **kwargs: dict,
     ) -> None:
+        self.dtype = dtype
+
         """Initialize a SpectrumDataset."""
         self._tmpdir = None
         if path is None:
@@ -209,7 +210,7 @@ class SpectrumDataset(Dataset, CollateFnMixin):
             PyTorch tensors if the nested data type is compatible.
         """
         return {
-            k: _tensorize(v[0])
+            k: _tensorize(v[0], dtype=self.dtype)
             for k, v in self._dataset.take([idx]).to_pydict().items()
         }
 
@@ -226,10 +227,7 @@ class SpectrumDataset(Dataset, CollateFnMixin):
     def peak_files(self) -> list[str]:
         """The files currently in the lance dataset."""
         return (
-            self._dataset.to_table(columns=["peak_file"])
-            .column(0)
-            .unique()
-            .to_pylist()
+            self._dataset.to_table(columns=["peak_file"]).column(0).unique().to_pylist()
         )
 
     @property
@@ -335,9 +333,7 @@ class AnnotatedSpectrumDataset(SpectrumDataset):
             to a PyTorch tensor or list of values.
         """
         batch = super().collate_fn(batch)
-        batch[self.annotations] = self.tokenizer.tokenize(
-            batch[self.annotations]
-        )
+        batch[self.annotations] = self.tokenizer.tokenize(batch[self.annotations])
         return batch
 
     @classmethod
@@ -461,10 +457,11 @@ def _get_records(
             except (pa.ArrowInvalid, TypeError):
                 spectra = arrow.spectra_to_stream(spectra, **kwargs)
 
-        yield from spectra
+        for batch in spectra:
+            yield batch
 
 
-def _tensorize(obj: Any) -> Any:  # noqa: ANN401
+def _tensorize(obj: Any, dtype: torch.dtype = torch.float32) -> Any:  # noqa: ANN401
     """Turn lists into tensors.
 
     Parameters
@@ -472,6 +469,10 @@ def _tensorize(obj: Any) -> Any:  # noqa: ANN401
     obj : any object
         If a list, attempt to make a tensor. If not or if it fails,
         return the obj unchanged.
+
+
+    dtype : torch.dtype
+        The datatype of the created tensors.
 
     Returns
     -------
@@ -483,7 +484,7 @@ def _tensorize(obj: Any) -> Any:  # noqa: ANN401
         return obj
 
     try:
-        return torch.tensor(obj)
+        return torch.tensor(obj, dtype=dtype)
     except ValueError:
         pass
 
