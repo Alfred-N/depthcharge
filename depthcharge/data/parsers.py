@@ -1,4 +1,5 @@
 """Mass spectrometry data parsers."""
+
 from __future__ import annotations
 
 import logging
@@ -35,11 +36,9 @@ class BaseParser(ABC):
     valid_charge : Iterable[int], optional
         Only consider spectra with the specified precursor charges. If `None`,
         any precursor charge is accepted.
-    custom_fields : dict of str to list of str, optional
-        Additional field to extract during peak file parsing. The key must
-        be the resulting column name and value must be an interable of
-        containing the necessary keys to retreive the value from the
-        spectrum from the corresponding Pyteomics parser.
+    custom_fields : list of pa.fields
+        Additional fields to extract during peak file parsing. the pa.field must contain a name and dtype, e.g.
+        pa.field("sequence", pa.string())
     progress : bool, optional
         Enable or disable the progress bar.
     id_type : str, optional
@@ -59,9 +58,7 @@ class BaseParser(ABC):
         """Initialize the BaseParser."""
         self.peak_file = Path(peak_file)
         self.progress = progress
-        self.ms_level = (
-            ms_level if ms_level is None else set(utils.listify(ms_level))
-        )
+        self.ms_level = ms_level if ms_level is None else set(utils.listify(ms_level))
 
         if preprocessing_fn is None:
             self.preprocessing_fn = [
@@ -97,11 +94,8 @@ class BaseParser(ABC):
         )
 
         if self.custom_fields is not None:
-            self.custom_fields = utils.listify(self.custom_fields)
             for field in self.custom_fields:
-                self.schema = self.schema.append(
-                    pa.field(field.name, field.dtype)
-                )
+                self.schema = self.schema.append(field)
 
     @abstractmethod
     def sniff(self) -> None:
@@ -150,7 +144,17 @@ class BaseParser(ABC):
             return out
 
         for field in self.custom_fields:
-            out[field.name] = field.accessor(spectrum)
+            if field.name in spectrum.keys():
+                out[field.name] = spectrum[field.name]
+            elif "params" in spectrum.keys():
+                if field.name in spectrum["params"].keys():
+                    out[field.name] = spectrum["params"][field.name]
+                else:
+                    raise ValueError(
+                        f"'{field.name}' not found in spectrum: {spectrum}"
+                    )
+            else:
+                raise ValueError(f"'{field.name}' not found in spectrum: {spectrum}")
 
         return out
 
@@ -217,9 +221,7 @@ class BaseParser(ABC):
                 yield self._yield_batch()
 
         if n_skipped:
-            LOGGER.warning(
-                "Skipped %d spectra with invalid information", n_skipped
-            )
+            LOGGER.warning("Skipped %d spectra with invalid information", n_skipped)
             LOGGER.debug("Last error: %s", str(last_exc))
 
     def _update_batch(self, entry: dict) -> None:
