@@ -168,6 +168,9 @@ class BaseParser(ABC):
         batch_size : int or None
             The number of spectra in a batch. ``None`` loads all of
             the spectra in a single batch.
+        min_peaks : int or None
+            The minimum number of allowed peaks. Spectra with fewer peaks
+            than this will be skipped
 
         Yields
         ------
@@ -210,7 +213,7 @@ class BaseParser(ABC):
                         "intensity_array": parsed.intensity,
                     }
 
-                except (IndexError, KeyError, ValueError) as exc:
+                except (IndexError, KeyError, ValueError, TypeError) as exc:
                     last_exc = exc
                     n_skipped += 1
                     continue
