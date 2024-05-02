@@ -51,7 +51,7 @@ class BaseParser(ABC):
         ms_level: int | Iterable[int] | None = 2,
         preprocessing_fn: Callable | Iterable[Callable] | None = None,
         valid_charge: Iterable[int] | None = None,
-        custom_fields: dict[str, str | Iterable[str]] | None = None,
+        custom_fields: Iterable[pa.Field] | None = None,
         progress: bool = True,
         id_type: str = "scan",
     ) -> None:
@@ -158,7 +158,9 @@ class BaseParser(ABC):
 
         return out
 
-    def iter_batches(self, batch_size: int | None) -> pa.RecordBatch:
+    def iter_batches(
+        self, batch_size: int | None, min_peaks: int | None
+    ) -> pa.RecordBatch:
         """Iterate over batches of mass spectra in the Arrow format.
 
         Parameters
@@ -173,6 +175,7 @@ class BaseParser(ABC):
             A batch of spectra and their metadata.
         """
         batch_size = float("inf") if batch_size is None else batch_size
+        min_peaks = 1 if min_peaks is None else min_peaks
         pbar_args = {
             "desc": self.peak_file.name,
             "unit": " spectra",
@@ -187,6 +190,10 @@ class BaseParser(ABC):
                 try:
                     parsed = self.parse_spectrum(spectrum)
                     if parsed is None:
+                        continue
+
+                    if len(parsed.mz) < min_peaks or len(parsed.intensity) < min_peaks:
+                        n_skipped += 1
                         continue
 
                     if self.preprocessing_fn is not None:

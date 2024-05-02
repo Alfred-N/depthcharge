@@ -1,4 +1,5 @@
 """Store spectrum data as Arrow tables."""
+
 from collections.abc import Callable, Generator, Iterable
 from os import PathLike
 from pathlib import Path
@@ -15,6 +16,7 @@ def spectra_to_stream(
     peak_file: PathLike,
     *,
     batch_size: int | None = 100_000,
+    min_peaks: int | None = 1,
     metadata_df: pl.DataFrame | pl.LazyFrame | None = None,
     ms_level: int | Iterable[int] | None = 2,
     preprocessing_fn: Callable | Iterable[Callable] | None = None,
@@ -102,7 +104,7 @@ def spectra_to_stream(
             on_cols.append("peak_file")
 
     parser = ParserFactory.get_parser(peak_file, **parser_args)
-    for batch in parser.iter_batches(batch_size=batch_size):
+    for batch in parser.iter_batches(batch_size=batch_size, min_peaks=min_peaks):
         if metadata_df is not None:
             batch = (
                 pl.from_arrow(batch)
