@@ -159,18 +159,18 @@ class BaseParser(ABC):
         return out
 
     def iter_batches(
-        self, batch_size: int | None, min_peaks: int | None
+        self, batch_size: int | None, min_peaks: int | None, max_precursor_charge: int | None = None
     ) -> pa.RecordBatch:
         """Iterate over batches of mass spectra in the Arrow format.
 
         Parameters
         ----------
         batch_size : int or None
-            The number of spectra in a batch. ``None`` loads all of
-            the spectra in a single batch.
+            The number of spectra in a batch. ``None`` loads all spectra in a single batch.
         min_peaks : int or None
-            The minimum number of allowed peaks. Spectra with fewer peaks
-            than this will be skipped
+            The minimum allowed peaks; spectra with fewer peaks are skipped.
+        max_precursor_charge : int or None, optional
+            Maximum allowed precursor charge; spectra exceeding this are skipped.
 
         Yields
         ------
@@ -186,6 +186,8 @@ class BaseParser(ABC):
         }
 
         n_skipped = 0
+        skipped_min = 0
+        skipped_prec = 0
         last_exc = None
         with self.open() as spectra:
             self._batch = None
@@ -194,15 +196,17 @@ class BaseParser(ABC):
                     parsed = self.parse_spectrum(spectrum)
                     if parsed is None:
                         continue
-
                     if len(parsed.mz) < min_peaks or len(parsed.intensity) < min_peaks:
                         n_skipped += 1
+                        skipped_min += 1
                         continue
-
+                    if max_precursor_charge is not None and parsed.precursor_charge > max_precursor_charge:
+                        n_skipped += 1
+                        skipped_prec += 1
+                        continue
                     if self.preprocessing_fn is not None:
                         for processor in self.preprocessing_fn:
                             parsed = processor(parsed)
-
                     entry = {
                         "peak_file": self.peak_file.name,
                         "scan_id": _parse_scan_id(parsed.scan_id),
@@ -212,7 +216,6 @@ class BaseParser(ABC):
                         "mz_array": parsed.mz,
                         "intensity_array": parsed.intensity,
                     }
-
                 except (IndexError, KeyError, ValueError, TypeError) as exc:
                     last_exc = exc
                     n_skipped += 1
@@ -231,7 +234,10 @@ class BaseParser(ABC):
                 yield self._yield_batch()
 
         if n_skipped:
-            LOGGER.warning("Skipped %d spectra with invalid information", n_skipped)
+            LOGGER.warning(
+                "Skipped %d spectra (min_peaks: %d, precursor_charge: %d)",
+                n_skipped, skipped_min, skipped_prec
+            )
             LOGGER.debug("Last error: %s", str(last_exc))
 
     def _update_batch(self, entry: dict) -> None:

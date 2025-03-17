@@ -23,6 +23,7 @@ def spectra_to_stream(
     valid_charge: Iterable[int] | None = None,
     custom_fields: CustomField | Iterable[CustomField] | None = None,
     progress: bool = True,
+    max_precursor_charge: int | None = None,
 ) -> Generator[pa.RecordBatch]:
     """Stream mass spectra in an Apache Arrow format, with preprocessing.
 
@@ -79,8 +80,11 @@ def spectra_to_stream(
         Additional fields to extract during peak file parsing.
     progress : bool, optional
         Enable or disable the progress bar.
+    max_precursor_charge : int or None, optional
+        Maximum allowed precursor charge; spectra with a precursor charge greater
+        than this are skipped.
 
-    Returns
+    Yields
     -------
     Generator of pyarrow.RecordBatch
         Batches of parsed spectra.
@@ -104,7 +108,9 @@ def spectra_to_stream(
             on_cols.append("peak_file")
 
     parser = ParserFactory.get_parser(peak_file, **parser_args)
-    for batch in parser.iter_batches(batch_size=batch_size, min_peaks=min_peaks):
+    for batch in parser.iter_batches(
+        batch_size=batch_size, min_peaks=min_peaks, max_precursor_charge=max_precursor_charge
+    ):
         if metadata_df is not None:
             batch = (
                 pl.from_arrow(batch)
@@ -119,7 +125,6 @@ def spectra_to_stream(
                 .to_arrow()
                 .to_batches(max_chunksize=batch_size)[0]
             )
-
         yield batch
 
 
